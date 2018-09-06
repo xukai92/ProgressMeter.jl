@@ -1,8 +1,8 @@
 import ProgressMeter
-using Compat.Test
+using Random: seed!
+using Test
 
-srand(123)
-
+seed!(123)
 
 function testfunc(n, dt, tsleep)
     p = ProgressMeter.Progress(n, dt)
@@ -54,7 +54,6 @@ end
 println("Testing that not even 1% required...")
 testfunc4()
 
-
 function testfunc5(n, dt, tsleep, desc, barlen)
     p = ProgressMeter.Progress(n, dt, desc, barlen)
     for i = 1:round(Int, floor(n/2))
@@ -67,7 +66,7 @@ function testfunc5(n, dt, tsleep, desc, barlen)
     end
 end
 
-println("Testing changing the bar color")
+println("\nTesting changing the bar color")
 testfunc5(107, 0.01, 0.01, "Computing...", 50)
 
 
@@ -167,6 +166,21 @@ testfunc10(107, 105, 0.01, 0.01)
 println("Testing over-shooting progress with finish!...")
 testfunc10(107, 111, 0.01, 0.01)
 
+function testfunc11(n, dt, tsleep)
+    p = ProgressMeter.Progress(n, dt)
+    for i = 1:n÷2
+        sleep(tsleep)
+        ProgressMeter.next!(p)
+    end
+    sleep(tsleep)
+    ProgressMeter.update!(p, 0)
+    for i = 1:n
+        sleep(tsleep)
+        ProgressMeter.next!(p)
+    end
+end
+println("Testing update! to 0...")
+testfunc11(6, 0.01, 0.3)
 
 function testfunc13()
     ProgressMeter.@showprogress 1 for i=1:10
@@ -186,7 +200,7 @@ function testfunc13()
         ProgressMeter.next!(p)
     end
     # full keyword argumetns
-    p = ProgressMeter.Progress(n, dt=0.01, desc="", color=:red, output=STDERR, barlen=40)
+    p = ProgressMeter.Progress(n, dt=0.01, desc="", color=:red, output=stderr, barlen=40)
     for i in 1:n
         sleep(0.1)
         ProgressMeter.next!(p)
@@ -212,7 +226,7 @@ function testfunc14(barglyphs)
         ProgressMeter.next!(p)
     end
     p = ProgressMeter.Progress(n, dt=0.01, desc="",
-                               color=:red, output=STDERR, barlen=40,
+                               color=:red, output=stderr, barlen=40,
                                barglyphs=ProgressMeter.BarGlyphs(barglyphs))
     for i in 1:n
         sleep(0.1)
@@ -227,7 +241,7 @@ testfunc14("[=> ]")
 # Threshold-based progress reports
 println("Testing threshold-based progress")
 prog = ProgressMeter.ProgressThresh(1e-5, "Minimizing:")
-for val in logspace(2, -6, 20)
+for val in 10 .^ range(2, stop=-6, length=20)
     ProgressMeter.update!(prog, val)
     sleep(0.1)
 end

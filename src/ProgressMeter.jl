@@ -2,7 +2,7 @@ __precompile__()
 
 module ProgressMeter
 
-using Compat.Printf: @sprintf
+using Printf: @sprintf
 
 export Progress, ProgressThresh, BarGlyphs, next!, update!, cancel, finish!, @showprogress
 
@@ -50,7 +50,7 @@ end
 
 """
 `prog = Progress(n; dt=0.1, desc="Progress: ", color=:green,
-output=STDERR, barlen=tty_width(desc))` creates a progress meter for a
+output=stderr, barlen=tty_width(desc))` creates a progress meter for a
 task with `n` iterations or stages. Output will be generated at
 intervals at least `dt` seconds apart, and perhaps longer if each
 iteration takes longer than `dt`. `desc` is a description of
@@ -74,7 +74,7 @@ mutable struct Progress <: AbstractProgress
                       dt::Real=0.1,
                       desc::AbstractString="Progress: ",
                       color::Symbol=:green,
-                      output::IO=STDERR,
+                      output::IO=stderr,
                       barlen::Integer=tty_width(desc),
                       barglyphs::BarGlyphs=BarGlyphs('|','█','█',' ','|'))
         counter = 0
@@ -85,7 +85,7 @@ mutable struct Progress <: AbstractProgress
 end
 
 Progress(n::Integer, dt::Real, desc::AbstractString="Progress: ",
-         barlen::Integer=tty_width(desc), color::Symbol=:green, output::IO=STDERR) =
+         barlen::Integer=tty_width(desc), color::Symbol=:green, output::IO=stderr) =
     Progress(n, dt=dt, desc=desc, barlen=barlen, color=color, output=output)
 
 Progress(n::Integer, desc::AbstractString) = Progress(n, desc=desc)
@@ -93,7 +93,7 @@ Progress(n::Integer, desc::AbstractString) = Progress(n, desc=desc)
 
 """
 `prog = ProgressThresh(thresh; dt=0.1, desc="Progress: ",
-color=:green, output=STDERR)` creates a progress meter for a task
+color=:green, output=stderr)` creates a progress meter for a task
 which will terminate once a value less than or equal to `thresh` is
 reached. Output will be generated at intervals at least `dt` seconds
 apart, and perhaps longer if each iteration takes longer than
@@ -117,7 +117,7 @@ mutable struct ProgressThresh{T<:Real} <: AbstractProgress
                                dt::Real=0.1,
                                desc::AbstractString="Progress: ",
                                color::Symbol=:green,
-                               output::IO=STDERR) where T
+                               output::IO=stderr) where T
         tfirst = tlast = time()
         printed = false
         new{T}(thresh, dt, typemax(T), 0, false, tfirst, tlast, printed, desc, color, output, 0)
@@ -125,7 +125,7 @@ mutable struct ProgressThresh{T<:Real} <: AbstractProgress
 end
 
 ProgressThresh(thresh::Real, dt::Real=0.1, desc::AbstractString="Progress: ",
-         color::Symbol=:green, output::IO=STDERR) =
+         color::Symbol=:green, output::IO=stderr) =
     ProgressThresh{typeof(thresh)}(thresh, dt=dt, desc=desc, color=color, output=output)
 
 ProgressThresh(thresh::Real, desc::AbstractString) = ProgressThresh{typeof(thresh)}(thresh, desc=desc)
@@ -147,7 +147,7 @@ function updateProgress!(p::Progress; showvalues = Any[], valuecolor = :blue)
             printvalues!(p, showvalues; color = valuecolor)
             println(p.output)
         end
-        return
+        return nothing
     end
 
     if t > p.tlast+p.dt
@@ -155,8 +155,12 @@ function updateProgress!(p::Progress; showvalues = Any[], valuecolor = :blue)
         bar = barstring(p.barlen, percentage_complete, barglyphs=p.barglyphs)
         elapsed_time = t - p.tfirst
         est_total_time = 100 * elapsed_time / percentage_complete
-        eta_sec = round(Int, est_total_time - elapsed_time )
-        eta = durationstring(eta_sec)
+        if 0 <= est_total_time <= typemax(Int)
+            eta_sec = round(Int, est_total_time - elapsed_time )
+            eta = durationstring(eta_sec)
+        else
+            eta = "N/A"
+        end
         msg = @sprintf "%s%3u%%%s  ETA: %s" p.desc round(Int, percentage_complete) bar eta
         move_cursor_up_while_clearing_lines(p.output, p.numprintedvalues)
         printover(p.output, msg, p.color)
@@ -167,6 +171,7 @@ function updateProgress!(p::Progress; showvalues = Any[], valuecolor = :blue)
         p.tlast = t + 2*(time()-t)
         p.printed = true
     end
+    return nothing
 end
 
 function updateProgress!(p::ProgressThresh; showvalues = Any[], valuecolor = :blue)
@@ -308,11 +313,11 @@ function printover(io::IO, s::AbstractString, color::Symbol = :color_normal)
         print(io, '\r', s)
     elseif isdefined(Main, :IJulia)
         print(io, '\r')
-        print_with_color(color, io, s) # Jupyter notebooks support ANSI color codes
+        printstyled(io, s; color=color) # Jupyter notebooks support ANSI color codes
         Main.IJulia.stdio_bytes[] = 0 # issue #76: circumvent IJulia I/O throttling
     else
         print(io, "\r")         # go to first column
-        print_with_color(color, io, s)
+        printstyled(io, s; color=color)
         print(io, "\u1b[K")     # clear the rest of the line
     end
 end
@@ -379,19 +384,17 @@ struct ProgressWrapper{T}
 end
 
 Base.length(wrap::ProgressWrapper) = Base.length(wrap.obj)
-Base.start(wrap::ProgressWrapper) = (Base.start(wrap.obj), true)
 
-function Base.done(wrap::ProgressWrapper, state)
-    done = Base.done(wrap.obj, state[1])
-    done && finish!(wrap.meter)
-    return done
-end
+function Base.iterate(wrap::ProgressWrapper, state...)
+    ir = iterate(wrap.obj, state...)
 
-function Base.next(wrap::ProgressWrapper, state)
-    st, firstiteration = state
-    firstiteration || next!(wrap.meter)
-    i, st = Base.next(wrap.obj, st)
-    return (i, (st, false))
+    if ir === nothing
+        finish!(wrap.meter)
+    elseif !isempty(state)
+        next!(wrap.meter)
+    end
+
+    ir
 end
 
 """
@@ -418,12 +421,12 @@ macro showprogress(args...)
 
     if isa(loop, Expr) && loop.head === :for
         outerassignidx = 1
-        loopbodyidx = endof(loop.args)
+        loopbodyidx = lastindex(loop.args)
     elseif isa(loop, Expr) && loop.head === :comprehension
-        outerassignidx = endof(loop.args)
+        outerassignidx = lastindex(loop.args)
         loopbodyidx = 1
     elseif isa(loop, Expr) && loop.head === :typed_comprehension
-        outerassignidx = endof(loop.args)
+        outerassignidx = lastindex(loop.args)
         loopbodyidx = 2
     else
         throw(ArgumentError("Final argument to @showprogress must be a for loop or comprehension."))
@@ -434,7 +437,7 @@ macro showprogress(args...)
         @assert length(loop.args) == loopbodyidx
         loop = loop.args[outerassignidx] = copy(loop.args[outerassignidx])
         @assert loop.head === :generator
-        outerassignidx = endof(loop.args)
+        outerassignidx = lastindex(loop.args)
         loopbodyidx = 1
     end
 
