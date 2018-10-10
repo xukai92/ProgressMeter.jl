@@ -293,7 +293,7 @@ function printvalues!(p::AbstractProgress, showvalues; color = false)
     maxwidth = maximum(Int[length(string(name)) for (name, _) in showvalues])
     for (name, value) in showvalues
         msg = "  |  " * string(name) * ": " * string(value)
-        (color == false) ? print(p.output, msg) : print_with_color(color, p.output, msg)
+        (color == false) ? print(p.output, msg) : printstyled(p.output, msg; color=color)
     end
     p.numprintedvalues = length(showvalues)
 end
